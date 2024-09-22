@@ -49,6 +49,10 @@ REST_FRAMEWORK = {
         'rest_framework.authentication.TokenAuthentication',
     ],
 }
+# my_project/settings.py
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'  # Assuming you use Django's Path object
+
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
