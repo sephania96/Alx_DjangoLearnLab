@@ -1,64 +1,73 @@
-from django.shortcuts import render
-
-# Create your views here.
-# accounts/views.py
-from rest_framework.views import APIView
+from rest_framework import generics, permissions
 from rest_framework.response import Response
-from rest_framework.authtoken.models import Token
+from rest_framework.views import APIView
+from .serializers import UserSerializer, TokenSerializer, PostSerializer
+from django.contrib.auth import authenticate
 from rest_framework import status
-from .serializers import UserRegistrationSerializer, UserLoginSerializer
-from .models import CustomUser
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.authentication import TokenAuthentication
+from .models import CustomUser, Post
+from .serializers import PostSerializer
+from rest_framework.authtoken.models import Token
 
-
-class UserRegistrationView(APIView):
+class RegisterView(APIView):
     def post(self, request):
-        serializer = UserRegistrationSerializer(data=request.data)
+        serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            token, created = Token.objects.get_or_create(user=user)
-            return Response({
-                'token': token.key,
-                'username': user.username,
-                'email': user.email,
-                'bio': user.bio,
-                'profile_picture': user.profile_picture.url if user.profile_picture else None
-            }, status=status.HTTP_201_CREATED)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+            token = Token.objects.create(user=user)
+            return Response({'token': token.key})
+        return Response(serializer.errors, status=400)
 
-
-class UserLoginView(APIView):
+class LoginView(APIView):
     def post(self, request):
-        serializer = UserLoginSerializer(data=request.data)
-        if serializer.is_valid():
-            return Response(serializer.validated_data, status=status.HTTP_200_OK)
-        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+        username = request.data.get('username')
+        password = request.data.get('password')
+        user = authenticate(username=username, password=password)
+        if user:
+            token, created = Token.objects.get_or_create(user=user)
+            return Response({'token': token.key})
+        return Response({'error': 'Invalid credentials'}, status=401)
 
+class TokenView(APIView):
+    def get(self, request):
+        token = request.user.auth_token
+        return Response({'token': token.key})
 
-
-class UserProfileView(APIView):
-    authentication_classes = [TokenAuthentication]
-    permission_classes = [IsAuthenticated]
+class UserListView(generics.GenericAPIView):
+    permission_classes = [permissions.IsAuthenticated]
+    serializer_class = UserSerializer
 
     def get(self, request):
-        user = request.user
-        return Response({
-            'username': user.username,
-            'email': user.email,
-            'bio': user.bio,
-            'profile_picture': user.profile_picture.url if user.profile_picture else None,
-            'followers': user.followers.count(),
-            'following': user.following.count(),
-        }, status=status.HTTP_200_OK)
+        users = CustomUser.objects.all()
+        serializer = self.serializer_class(users, many=True)
+        return Response(serializer.data)
 
-    def put(self, request):
-        user = request.user
-        user.bio = request.data.get('bio', user.bio)
-        user.profile_picture = request.data.get('profile_picture', user.profile_picture)
-        user.save()
-        return Response({
-            'message': 'Profile updated successfully',
-            'bio': user.bio,
-            'profile_picture': user.profile_picture.url if user.profile_picture else None
-        }, status=status.HTTP_200_OK)
+class FollowView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, user_id):
+        try:
+            user_to_follow = CustomUser.objects.get(id=user_id)
+            request.user.following.add(user_to_follow)
+            return Response(status=status.HTTP_200_OK)
+        except CustomUser.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+
+class UnfollowView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def post(self, request, user_id):
+        try:
+            user_to_unfollow = CustomUser.objects.get(id=user_id)
+            request.user.following.remove(user_to_unfollow)
+            return Response(status=status.HTTP_200_OK)
+        except CustomUser.DoesNotExist:
+            return Response(status=status.HTTP_404_NOT_FOUND)
+        
+class FeedView(APIView):
+    permission_classes = [permissions.IsAuthenticated]
+
+    def get(self, request):
+        followed_users = request.user.following.all()
+        posts = Post.objects.filter(author__in=followed_users).order_by('-created_at')
+        serializer = PostSerializer(posts, many=True)
+        return Response(serializer.data)

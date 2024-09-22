@@ -1,37 +1,29 @@
 from rest_framework import serializers
-from .models import CustomUser
-from django.contrib.auth import authenticate
+from django.contrib.auth.models import User
 from rest_framework.authtoken.models import Token
+from django.contrib.auth import get_user_model
 
-class UserRegistrationSerializer(serializers.ModelSerializer):
+class UserSerializer(serializers.ModelSerializer):
     password = serializers.CharField(write_only=True)
-    username = serializers.CharField(max_length=150)
-
-    class Meta:
-        model = CustomUser
-        fields = ['username', 'password', 'email', 'bio', 'profile_picture']
+    new_field = serializers.CharField()
 
     def create(self, validated_data):
-        user = CustomUser.objects.create_user(
+        user = get_user_model().objects.create_user(
             username=validated_data['username'],
-            password=validated_data['password'],
             email=validated_data['email'],
-            bio=validated_data.get('bio', ''),
-            profile_picture=validated_data.get('profile_picture')
+            password=validated_data['password']
         )
-        Token.objects.create(user=user)
         return user
 
+    class Meta:
+        model = User
+        fields = ['username', 'email', 'password', 'bio', 'profile_picture']
 
-class UserLoginSerializer(serializers.Serializer):
-    username = serializers.CharField()
-    password = serializers.CharField(write_only=True)
-    token = serializers.CharField(read_only=True)
+class TokenSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Token
+        fields = ['key']
 
-    def validate(self, data):
-        user = authenticate(username=data['username'], password=data['password'])
-        if user:
-            token, created = Token.objects.get_or_create(user=user)
-            return {'username': user.username, 'token': token.key}
-        else:
-            raise serializers.ValidationError("Invalid credentials")
+    def create(self, validated_data):
+        token = Token.objects.create(user=validated_data['user'])
+        return token
